@@ -2,101 +2,28 @@ import random
 
 from django.test import TestCase
 from django.urls import reverse
+from django.test import Client
+from django.core.exceptions import ObjectDoesNotExist
+from http.cookies import SimpleCookie
 
 from rest_framework.test import APITestCase
 from rest_framework import status
+from rest_framework_simplejwt.tokens import RefreshToken
 
 #User model
 from django.contrib.auth import get_user_model
 
 #Permissions
-from core.permissions import IsStudent, IsTeacher
-
-class EndpointTests(APITestCase):
-    """
-    Testing API endpoints
-    """
-    def setUp(self):
-        User = get_user_model()
-        #Student user
-        self.user = User.objects.create(
-            email="student@example.com",
-            first_name="Freddy",
-            last_name="Mercury",
-            is_student=True,
-            is_teacher=False,
-        )
-
-        #List of GET API endpoints
-        self._get_urls = [
-            reverse("cat:list"), reverse("cat:detail", kwargs={"id":"1"}),
-            reverse("course:list"), reverse("course:detail", kwargs={"id":"1"}),
-            reverse("lesson:list"), reverse("lesson:detail", kwargs={"id":"1"}),
-            reverse("slide:list"), reverse("slide:detail", kwargs={"id":"1"}),
-        ]
-
-        #List of Create API endpoints
-        self._create_urls = [
-            reverse("cat:create"),
-            reverse("course:create"),
-            reverse("lesson:create"),
-            reverse("slide:create"),
-        ]
-
-        #List of RUD API endpoints
-        self._rud_urls = [
-            reverse("cat:rud", kwargs={"id":"1"}),
-            reverse("course:rud", kwargs={"id":"1"}),
-            reverse("lesson:rud", kwargs={"id":"1"}),
-            reverse("slide:rud", kwargs={"id":"1"}),
-        ]
-
-    def test_api_requests(self):
-        #GET requests
-        for url in self._get_urls:
-            self.user.is_teacher = False
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.user.is_teacher = True
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        #Create requests
-        for url in self._create_urls:
-            self.user.is_teacher = False
-            response = self.client.post(url, data={"ping": "pong"}, format="json")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-            self.user.is_teacher = True
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        #PUT requests
-        for url in self._rud_urls:
-            self.user.is_teacher = False
-            response = self.client.put(url, data={"ping": "pong"}, format="json")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-            self.user.is_teacher = True
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        #DELETE requests
-        for url in self._rud_urls:
-            self.user.is_teacher = False
-            response = self.client.delete(url)
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-            self.user.is_teacher = True
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
+from .permissions import IsStudent, IsTeacher
 
 class LoginTests(APITestCase):
     """
     Testing Login endpoints
     """
     def setUp(self):
-        self._student_login_url = reverse("user:login"),
-        self._teacher_login_url = reverse("user:login"),
-        self._admin_login_url = reverse("admin:login"),
+        self._student_login_url = "/core/login/"
+        self._teacher_login_url = "/core/login/"
+        self._admin_login_url = "/core/login/"
 
     def test_student_login(self):
         #Create student user
@@ -112,27 +39,24 @@ class LoginTests(APITestCase):
 
         #Login attempt
         data = {"email":"student@example.com", "password":"student"}
-        response = self.client.post(self._student_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(self.client.login(**data))
 
         #Incorrect email
         data = {"email":"random", "password":"student"}
-        response = self.client.post(self._student_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertFalse(self.client.login(**data))
 
         #Incorrect password
         data = {"email":"student@example.com", "password":"random"}
-        response = self.client.post(self._student_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertFalse(self.client.login(**data))
 
     def test_teacher_login(self):
         #Create techer user
         User = get_user_model()
         self.user = User.objects.create_user(
-            email="student@example.com",
+            email="teacher@example.com",
             password="teacher",
             first_name="John",
             last_name="Lennon",
@@ -142,65 +66,80 @@ class LoginTests(APITestCase):
 
         #Login attempt
         data = {"email":"teacher@example.com", "password":"teacher"}
-        response = self.client.post(self._teacher_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(self.client.login(**data))
 
         #Incorrect email
         data = {"email":"random", "password":"teacher"}
-        response = self.client.post(self._teacher_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertFalse(self.client.login(**data))
 
         #Incorrect password
         data = {"email":"teacher@example.com", "password":"random"}
-        response = self.client.post(self._teacher_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertFalse(self.client.login(**data))
 
     def test_admin_login(self):
         #Create admin user
         User = get_user_model()
-        self.user = User.objects.create_superuser(email="admin@example.com", password="admin")
+        self.user = User.objects.create_superuser(
+            email="admin@example.com",
+            password="admin",
+            first_name="Super",
+            last_name="User",
+            is_student=True,
+            is_teacher=True,
+        )
 
         #Correct login
         data = {"email":"admin@example.com", "password":"admin"}
-        response = self.client.post(self._admin_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(self.client.login(**data))
 
         #Incorrect email
         data = {"email":"random", "password":"admin"}
-        response = self.client.post(self._admin_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertFalse(self.client.login(**data))
 
         #Incorrect password
         data = {"email":"admin@example.com", "password":"random"}
-        response = self.client.post(self._admin_login_url, data, format="json")
+        response = self.client.post("/core/login/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertFalse(self.client.login(**data))
 
 class UserRegistrationTests(APITestCase):
     """
     Tetsing user's registration endpoint
     """
     def setUp(self):
-        self._user_registration_url = reverse("user:registration")
+        self._user_registration_url = reverse("core:signup")
 
     def test_user_registration(self):
+        User = get_user_model()
+        initial_user_count = User.objects.count()
         data = {
             "email":"student@example.com",
-            "password":"student",
+            "password":"student1234",
             "first_name":"Michael",
             "last_name":"Bubble",
         }
         response = self.client.post(self._user_registration_url, data, format="json")
+        if response.status_code != 200:
+            print(response.data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(User.objects.count(), initial_user_count + 1)
+
+        data.pop("password")
+        for attr, expected_value in data.items():
+            self.assertEqual(response.data[attr], expected_value)
+        try:
+            User.objects.get(email="student@example.com")
+        except ObjectDoesNotExist:
+            raise ValueError
 
         #Pop a random key
         incorrect_data = {key: item for key, item in data.items()}
-        response = self.client.post(self._user_registration_url, incorrect_data.pop(random.choice(incorrect_data.keys())), format="json")
+        random_key = random.choice(list(incorrect_data.keys()))
+        response = self.client.post(self._user_registration_url, incorrect_data.pop(random_key), format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             
         #Change key's text direction
@@ -220,7 +159,7 @@ class UserLogoutTests(APITestCase):
     Testing user's logout endpoint
     """
     def setUp(self):
-        self._user_logout_url = reverse("user:logout")
+        self._user_logout_url = reverse("core:logout")
 
     def test_user_logout_after_login(self):
         User = get_user_model()
@@ -232,12 +171,21 @@ class UserLogoutTests(APITestCase):
             is_student=False,
             is_teacher=True,
         )
-        data = {"email":"user@example.com", "password":"user"}
-        self.user.login(**data)
+        #Generating a token in order to simulate login
+        refresh = RefreshToken.for_user(self.user)
+        access = str(refresh.access_token)
+
+        #Setting up HTTP headers and HTTP-ONLY cookie
+        client = Client(HTTP_AUTHORIZATION=f"Bearer {access}")
+        client.cookies.load({'jwt':str(refresh)})
 
         #Logout attempt via POST request
-        response = self.client.post(self._user_logout_url, {"email":"user@example.com"}, format="json")
+        response = client.post(self._user_logout_url, {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        #Logout attempt via GET request
+        response = client.get(self._user_logout_url)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_user_logout_before_login(self):
         User = get_user_model()
@@ -249,53 +197,14 @@ class UserLogoutTests(APITestCase):
             is_student=False,
             is_teacher=True,
         )
-        data = {"email":"user@example.com", "password":"user"}
-        self.user.login(**data)
-        self.user.logout()
 
         #Logout attempt when user is not authenticated
-        response = self.client.post(self._user_logout_url, {"email":"user@example.com"}, format="json")
+        response = self.client.post(self._user_logout_url, {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-class UserPermissionTests(TestCase):
-    """
-    Testing custom permissions
-    """
-    def test_student_permission(self):
-        User = get_user_model()
-        self.user = User.objects.create(
-            email="student@example.com",
-            first_name="Freddy",
-            last_name="Mercury",
-            is_student=True,
-            is_teacher=False,
-        )
-
-        self.assertTrue(self.user.has_perm(IsStudent))
-        self.assertFalse(self.user.has_perm(IsTeacher))
-
-        #Adding teacher permission
-        self.user.user_permissions.add(IsTeacher)
-        self.assertTrue(self.user.has_perm(IsStudent))
-        self.assertTrue(self.user.has_perm(IsTeacher))
-
-    def test_teacher_permission(self):
-        User = get_user_model()
-        self.user = User.objects.create(
-            email="student@example.com",
-            first_name="Freddy",
-            last_name="Mercury",
-            is_student=False,
-            is_teacher=True,
-        )
-
-        self.assertFalse(self.user.has_perm(IsStudent))
-        self.assertTrue(self.user.has_perm(IsTeacher))
-
-        #Adding student permission
-        self.user.user_permissions.add(IsStudent)
-        self.assertTrue(self.user.has_perm(IsStudent))
-        self.assertTrue(self.user.has_perm(IsTeacher))
+        #Logout attempt via GET request
+        response = self.client.get(self._user_logout_url)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 class UserCreateTests(TestCase):
     """
@@ -306,6 +215,8 @@ class UserCreateTests(TestCase):
         user = User.objects.create_user(
             email='student@example.com',
             password='student',
+            first_name="John",
+            last_name="Lennon",
             is_student=True,
             is_teacher=False,
             is_staff=False,
@@ -337,6 +248,8 @@ class UserCreateTests(TestCase):
         user = User.objects.create_user(
             email='teacher@example.com',
             password='teacher',
+            first_name="Freddy",
+            last_name="Mercury",
             is_student=False,
             is_teacher=True,
             is_staff=False,
@@ -366,8 +279,10 @@ class UserCreateTests(TestCase):
     def test_create_superuser(self):
         User = get_user_model()
         admin_user = User.objects.create_superuser(
-            'admin@example.com', 
-            'admin',
+            email='admin@example.com', 
+            password='admin',
+            first_name="Super",
+            last_name="User",
             is_teacher=True,
             is_student=True,
         )
@@ -390,4 +305,3 @@ class UserCreateTests(TestCase):
                 password='admin',
                 is_superuser=False
             )
-
